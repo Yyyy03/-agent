@@ -1,0 +1,40 @@
+bench: rfc_task2
+task_family: single_turn_qa
+dataset: benchmarks/rfc_task2_final.jsonl
+description: RFC-BENCH Task 2 source-grounded manipulation type classification.
+agent:
+  max_steps: 1
+  max_tool_calls_per_round: 3
+tools: []
+
+model:
+  profiles:
+    v4flash:
+      name: deepseek-v4-flash
+      max_tokens: 10000
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+    pro:
+      name: deepseek-v4-pro
+      max_tokens: 10000
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+  default_profile: v4flash
+  reasoning:
+    enabled: true
+    mode: high
+
+prompt:
+  system_constraints: |
+    Perform RFC-BENCH Task 2: source-grounded manipulation type classification.
+    Use only the provided source page and manipulated paragraph in the task prompt.
+    Do not browse the web, retrieve the linked article, call evidence/retrieval tools, or use outside evidence.
+    Choose exactly one label from: numerical, flipping, sentiment, causal.
+    Native model thinking, when enabled by the serving stack, is only private deliberation and is not an answer channel.
+    If the backend separates reasoning_content from content, finish the private thinking phase before calling final_answer.
+    Do not write "Final Answer", labels, or the benchmark answer only inside reasoning_content.
+    Emit the final answer through the native final_answer tool call.
+    Put only that label in final_answer.arguments.answer.
+    The answer value must be exactly one of numerical, flipping, sentiment, causal.

@@ -1,0 +1,51 @@
+bench: bizfinbench_v2
+task_family: single_turn_qa
+dataset: benchmarks/bizfinbench_v2_sample_500.jsonl
+description: BizFinBench.v2 bilingual single-turn financial QA sample.
+agent:
+  max_steps: 1
+  max_tool_calls_per_round: 3
+tools: []
+
+model:
+  profiles:
+    v4flash:
+      name: deepseek-v4-flash
+      max_tokens: 4096
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+    pro:
+      name: deepseek-v4-pro
+      max_tokens: 4096
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+  default_profile: v4flash
+  reasoning:
+    enabled: true
+    mode: high
+
+prompt:
+  system_constraints: |
+    Answer the user's financial question using only the information in the prompt.
+    Preserve the requested language, answer payload format, units, ordering, and schema.
+    Do not use web search or external market data.
+    IMPORTANT OUTPUT CONTRACT:
+    Native model thinking is private deliberation, not an answer channel.
+    Finish by calling the native final_answer tool exactly once.
+    Put only the final benchmark answer payload in final_answer.arguments.answer; no reasoning, explanations, alternatives, or restatements.
+    Keep visible content before the final_answer tool call empty or minimal, and never put the answer only in reasoning_content.
+    Follow the original question's requested schema exactly. Do not wrap a non-JSON answer into {"answer": ...} unless the question itself requires it.
+    For JSON/list/schema answers, write raw valid JSON text as the answer string; do not output escaped JSON strings or arrays of escaped JSON strings.
+    For anomaly_information_tracing tasks, output only the requested content ids, e.g. 3,4,8 or [3,4,8], matching the question language and format.
+    For event_logic_reasoning and financial_report_analysis tasks, output only the ranking/order required by the question, e.g. 4,1,2,3 or boxed{4,1,2,3} if boxed is required.
+    For financial multi-turn perception tasks, final_answer.arguments.answer must be the raw JSON array text itself, e.g. [{"描述编号": 1, "answer": [2]}] or [{"description_id": 1, "answer": [2]}], not ["{\"描述编号\":1,\"answer\":[2]}"].
+    For financial data description tasks, the answer string must be either a raw list of ids such as [1, 4] or {"answer": [1, 4]}.
+    For financial report ranking answers, preserve the required boxed{...} format in the answer string.
+    For stock price prediction tasks, the benchmark requires a forced numeric forecast even when evidence is incomplete. Do not refuse. Do not say data is insufficient. Estimate from the latest provided price, recent trend, market context, news, and sentiment, then output numeric values.
+    For English stock price prediction prompts, still make a numeric forecast; never use N/A or any refusal phrase.
+    For stock price prediction tasks, never answer N/A, Not Available, Cannot predict, Data insufficient, unknown, or any non-numeric placeholder.
+    For stock price prediction and user sentiment interval tasks, the answer string must end with exactly two lines: answer_boxed{<number>} and interval_boxed{[<number>,<number>]}. Do not put analysis after those two lines.
+    For fixed-interval tasks, do not round interval endpoints; use the exact multiplier required by the prompt.
+    If you are unsure, still output the best valid final answer in the required format.

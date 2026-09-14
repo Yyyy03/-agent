@@ -1,0 +1,22 @@
+# Minimal dependencies to run the Mint Finance Agent WEB APP (bridge + frontend).
+#
+# Deliberately excludes the offline SFT / evaluation ML stack that is only used by
+# backend/src/fire_agent/sft and the rescore_* scripts:
+#     torch, transformers, sentence-transformers, bert-score
+# Install the full requirements.txt (plus the additions below) only when you need
+# to run offline benchmarks / SFT training.
+#
+# NOTE: `tushare` and `requests` are imported by the live market_data path but were
+# missing from requirements.txt, so they are listed here explicitly.
+
+aiohttp>=3.11.9
+PyYAML>=6.0.2
+python-dotenv>=1.0.1
+json_repair>=0.44.1
+requests
+tushare
+akshare>=1.15.34
+beautifulsoup4>=4.12.3
+pandas>=2.3.3
+pypdf==6.11.0
+docling>=2.97.0

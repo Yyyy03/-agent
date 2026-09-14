@@ -1,0 +1,31 @@
+bench: financeagentbench
+task_family: multiturn qa
+dataset: benchmarks/cfa_l1_choice_questions.jsonl
+description: CFA Level I multiple-choice questions extracted from the 2025 1000-question PDF.
+date_context:
+  source_cutoff_date: "2026-07-22"
+agent:
+  max_steps: 5
+  max_tool_calls_per_round: 3
+  tool_timeout_seconds: 90
+  allow_paid_tools: true
+  context_mode: auto
+  task_state_render_mode: auto
+tools:
+  - web_search
+  - web_reader
+  - structured_table_reader
+  - sec_search
+  - sec_reader
+  - market_data
+  - calculator
+prompt:
+  system_constraints: |
+    You are a careful CFA Level I exam solver. Answer only from the supplied question and answer choices unless a tool is clearly needed for a formula, definition, or arithmetic check.
+    External tools are enabled for this run, but do not browse or query data sources for ordinary CFA curriculum concepts that can be solved from the prompt.
+    Put compact JSON text in final_answer.arguments.answer only: {"answer":"A","rationale":"brief reason"}. The answer value must be exactly one of A, B, or C.
+  planning_constraints: |
+    Identify the concept being tested, compare A/B/C, use calculator for arithmetic when helpful, and finish with final_answer.
+  tool_constraints:
+    calculator:
+      - Use calculate for arithmetic, percentages, ratios, present values, duration/convexity, and other numeric checks.

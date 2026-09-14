@@ -1,0 +1,35 @@
+bench: rfc_bench
+task_family: single_turn_qa
+dataset: benchmarks/rfc_bench.jsonl
+description: RFC-BENCH Task 1 reference-free counterfactual financial misinformation detection.
+agent:
+  max_steps: 1
+  max_tool_calls_per_round: 3
+tools: []
+
+model:
+  profiles:
+    v4flash:
+      name: deepseek-v4-flash
+      max_tokens: 1024
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+    pro:
+      name: deepseek-v4-pro
+      max_tokens: 1024
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+  default_profile: v4flash
+  reasoning:
+    enabled: true
+    mode: high
+
+prompt:
+  system_constraints: |
+    You perform RFC-BENCH Task 1: reference-free counterfactual financial misinformation detection.
+    Do not browse the web, retrieve the linked article, or compare against any outside source.
+    Use only the provided paragraph and metadata.
+    The benchmark answer string must be exactly one label: factual or manipulated.
+    Put only that label in final_answer.arguments.answer.

@@ -1,0 +1,94 @@
+bench: financeagent_v2
+task_family: multiturn qa
+dataset: benchmarks/financeagent_v2_public_full.jsonl
+description: Finance Agent v2 public QA tasks with canonical FIRE Agent tools.
+date_context:
+  source_cutoff_date: "2026-03-01"
+agent:
+  max_steps: 40
+  max_tool_calls_per_round: 3
+  tool_timeout_seconds: 90
+tools:
+  - web_search
+  - web_reader
+  - sec_search
+  - sec_reader
+  - market_data
+  - calculator
+
+prompt:
+  system_constraints: |
+    You are a financial agent. You are given a question and need to answer it using the tools provided.
+    You cannot interact with the user or ask clarifications; answer only from the available evidence and tools.
+    Answer all questions as if the current date is {source_cutoff_date}.
+    SEC filings are the most authoritative source of financial data. For any SEC URL or SEC-related evidence need, use sec_search to search EDGAR filing metadata, then sec_reader to read filing text, tables, or exhibits. Do not use web_reader/Jina for sec.gov, data.sec.gov, SEC Archives, or SEC filing mirrors.
+    Prefer SEC evidence over investor-relations PDFs/pages when the same press release, shareholder letter, proxy, 10-K, 10-Q, or 8-K exhibit is available through SEC. For earnings releases and guidance, look for 8-K EX-99.1/EX-99 exhibits via sec_search_full_text_search and sec_reader_read_exhibits before relying on non-SEC IR pages.
+    Use web_search only to discover public non-SEC URLs. Use web_reader only for known non-SEC URLs or local documents. If web_reader/direct PDF reports that a URL returned text/html instead of PDF, treat it as a landing/download/challenge page, not as a PDF parsing failure; find the SEC exhibit version, a same-release 8-K EX-99.1/EX-99, a BusinessWire/PRNewswire mirror, or the true .pdf link from search results. If Jina/web_reader returns HTTP 403, Cloudflare/Akamai challenge, or error code 1010 for a domain, do not repeatedly call web_reader on the same domain in this task; switch evidence source. Use market_data for structured market data: Tushare for precise China A-share, index, fund, futures, options, ChinaBond yield curve, China macro, and SHIBOR tables; Yahoo Finance for global historical prices; FRED for US macro series; World Bank for country-level macro series; and AkShare only for China-market tables not covered by typed market_data actions. For share-price returns, work from structured historical price rows with date and close-price fields rather than search snippets. Use calculator for arithmetic.
+    When reporting financial figures, preserve units, currencies, periods, and scale as presented in the source unless the question specifies otherwise.
+    At the end of your answer, provide sources in a dictionary with this format: {"sources": [{"url": "https://example.com", "name": "Name of the source"}]}.
+    Once enough evidence is found, answer directly. If only some requested fields are found, summarize found fields, missing fields, and source gaps instead of continuing open-ended searches.
+  planning_constraints: |
+    Use web_search for public web discovery, web_reader for non-SEC reading, sec_search for SEC filing metadata, sec_reader for SEC evidence, market_data for routed structured market data, and calculator for arithmetic.
+    Source routing discipline: SEC-related sources must go through sec_reader; non-SEC PDF text/html or Jina 403 failures should trigger a source switch rather than repeated reads.
+    Treat the current date and all tool date ceilings as {source_cutoff_date}.
+    Finish with final_answer.
+  tool_constraints:
+    web_search:
+      - Search public non-SEC web results only; returns snippets and URLs, not full page content.
+    web_reader:
+      - Read known non-SEC URLs or local PDF/text files. SEC URLs, SEC Archives, and data.sec.gov must use sec_reader.
+      - If a direct PDF read says the response is text/html, the URL is not a direct PDF response; stop treating it as a PDF and find a true PDF, SEC exhibit, BusinessWire/PRNewswire mirror, or HTML evidence.
+      - If Jina/web_reader returns HTTP 403, Cloudflare/Akamai challenge, or error code 1010 for a domain, do not repeat web_reader on that domain in the same task; switch to SEC evidence or another source.
+    sec_search:
+      - Search SEC EDGAR filing metadata; returns metadata and URLs only. Date fields use YYYY-MM-DD and are capped to {source_cutoff_date}.
+    sec_reader:
+      - Read known SEC filing evidence directly from sec.gov/data.sec.gov; use read_tables for table questions and read_exhibits for filing package attachments.
+      - For SEC-related evidence, prefer sec_reader over web_reader/Jina. For earnings releases, guidance, shareholder letters, and investor presentations, use read_exhibits to find EX-99.1/EX-99 exhibits when available.
+    market_data:
+      - Let provider default to auto unless a source is clear. Use provider="yahoo" for global historical prices, indexes, FX proxies, and continuous futures; provider="fred" for official US macro series; provider="world_bank" for country-level annual macro indicators; provider="akshare" for China-market tables, Chinese financial data, and supported macro tables.
+      - Use Tushare typed actions for precise China structured data; use price_history for global historical prices, equity_price_history for China A-share daily OHLCV, and quote_snapshot for current/snapshot data.
+      - Do not use Yahoo continuous futures as an exact substitute for a specific dated futures contract unless the question permits approximation.
+      - For price performance or share-price return questions, base the calculation on structured price_history rows. Preserve the date, close, adjusted close if present, currency/source, and use close unless the question explicitly asks for adjusted close.
+      - Check that each requested date is an actual returned trading date. If it is not present, identify the nearest available trading date instead of silently substituting a value. Web snippets may help locate a source, but should not be the sole basis for an exact closing-price return.
+    calculator:
+      - Use calculate with an explicit expression for arithmetic, percentages, basis points, CAGR, ratios, midpoints, differences, and totals.
+
+tool_settings:
+  web_search:
+    canonical_tool: web_search
+    backend: serper
+    description: Search public non-SEC web results through Serper; returns snippets and URLs only.
+    default_action: search
+    defaults:
+      max_results: 10
+  web_reader:
+    canonical_tool: web_reader
+    backend: jina_local
+    description: Read known non-SEC URLs or local documents, cache full source text internally for this task, and return query-focused evidence. Reader observations include document_key; if evidence is incomplete, call web_reader again with that document_key and a narrower query. SEC filing URLs must use sec_reader. If direct PDF returns text/html, treat it as a landing/download/challenge page and find a true PDF, SEC exhibit, BusinessWire/PRNewswire mirror, or HTML source. If Jina returns 403/1010 for a domain, switch sources instead of retrying that domain.
+    default_action: read_url
+  sec_search:
+    canonical_tool: sec_search
+    backend: sec_api
+    description: Search SEC EDGAR filing metadata; returns metadata and URLs only.
+    default_action: full_text_search
+    defaults:
+      max_end_date: "{source_cutoff_date}"
+      top_n_results: 100
+  sec_reader:
+    canonical_tool: sec_reader
+    backend: direct_sec
+    description: Read known SEC filing text, tables, and exhibits directly from SEC endpoints, cache full filing text internally for this task, and return query-focused evidence. Reader observations include document_key; if evidence is incomplete, call sec_reader_read_filing again with that document_key and a narrower query. Use this for all SEC URLs and SEC-related evidence; prefer sec_reader_read_exhibits for 8-K EX-99.1/EX-99 earnings releases, guidance, shareholder letters, and investor presentations.
+    default_action: read_filing
+  market_data:
+    canonical_tool: market_data
+    backend: multi_source
+    description: "Structured market and financial data through routed providers: Tushare for precise China A-share name resolution, statements, indicators, dividends, prices, index, fund, futures, options, ChinaBond yield curve, China macro, and SHIBOR tables; Yahoo Finance for global prices; FRED for US macro; World Bank for country macro; and AkShare only as an explicit escape hatch for China-market tables not covered by typed actions. Use price_history/equity_price_history rows, with explicit dates and close prices, for exact share-price returns; verify requested trading dates before calculating."
+    default_action: capabilities
+    defaults:
+      provider: auto
+      max_end_date: "{source_cutoff_date}"
+  calculator:
+    canonical_tool: calculator
+    backend: local
+    description: Evaluate a safe arithmetic expression.
+    default_action: calculate

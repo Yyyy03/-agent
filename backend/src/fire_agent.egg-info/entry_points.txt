@@ -1,0 +1,11 @@
+[console_scripts]
+fire-agent = fire_agent.cli:main
+fire-agent-benchmarks = fire_agent.run_benchmarks:main
+fire-agent-prepare-findocresearch = fire_agent.prepare_findocresearch:main
+fire-agent-prepare-finrpt = fire_agent.prepare_finrpt:main
+fire-agent-sft-bucket-slime-episode-view = fire_agent.sft.bucket_slime_episode_view:main
+fire-agent-sft-build-slime-episode-view = fire_agent.sft.build_slime_episode_view:main
+fire-agent-sft-export = fire_agent.sft.export_events:main
+fire-agent-sft-export-slime-qwen35 = fire_agent.sft.export_slime_qwen35_sft:main
+fire-agent-sft-generate-fin-deepsearch = fire_agent.sft.generate_fin_deepsearch_sft_data:main
+fire-agent-sft-train = fire_agent.sft.train_qwen_sft:main

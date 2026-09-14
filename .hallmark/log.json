@@ -1,0 +1,20 @@
+[
+  {
+    "date": "2026-07-29",
+    "macrostructure": "Workbench",
+    "theme": "custom",
+    "theme_axes": "mid / grotesk-sans / cool-green",
+    "vibe": "jade precision finance instrument",
+    "enrichment": "generated UI reference",
+    "brief": "Tactile jade finance workbench with mineral conversation surface"
+  },
+  {
+    "date": "2026-07-29",
+    "macrostructure": "Workbench",
+    "theme": "custom",
+    "theme_axes": "light / grotesk-sans / cool-green",
+    "vibe": "precise daylight finance terminal",
+    "enrichment": "none",
+    "brief": "Chat-first finance agent with merged benchmark and audit tools"
+  }
+]

@@ -1,0 +1,37 @@
+bench: financebench
+task_family: single_turn_qa
+dataset: benchmarks/financebench.jsonl
+description: FinanceBench evidence-provided QA over gold evidence pages, fragments, and tables.
+agent:
+  max_steps: 1
+  max_tool_calls_per_round: 3
+tools: []
+
+model:
+  profiles:
+    v4flash:
+      name: deepseek-v4-flash
+      max_tokens: 2048
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+    pro:
+      name: deepseek-v4-pro
+      max_tokens: 2048
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+  default_profile: v4flash
+  reasoning:
+    enabled: true
+    mode: high
+
+prompt:
+  system_constraints: |
+    Answer the question using only the provided FinanceBench evidence pages, fragments, and financial tables.
+    Do not use external financial reports, PDFs, web search, SEC search, or retrieval tools.
+    Native model thinking, when enabled by the serving stack, is only private deliberation and is not an answer channel.
+    If the backend separates reasoning_content from content, finish the private thinking phase before calling final_answer.
+    Do not write "Final Answer", benchmark answers, or the benchmark answer only inside reasoning_content.
+    Emit the final answer through the native final_answer tool call.
+    Provide a concise final answer and a brief justification.

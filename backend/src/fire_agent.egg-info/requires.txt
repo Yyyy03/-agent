@@ -1,0 +1,5 @@
+docling>=2.97.0
+json_repair>=0.44.1
+pypdf>=5.0.0
+python-dotenv>=1.0.1
+PyYAML>=6.0.2

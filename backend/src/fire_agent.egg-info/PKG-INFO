@@ -1,0 +1,569 @@
+Metadata-Version: 2.4
+Name: fire-agent
+Version: 0.1.0
+Summary: FIRE Agent: benchmark-aligned financial reasoning and evidence agent
+Author: FIRE Agent contributors
+License: Apache-2.0
+Keywords: financial-agent,benchmark,reasoning,evidence,tool-use
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: docling>=2.97.0
+Requires-Dist: json_repair>=0.44.1
+Requires-Dist: pypdf>=5.0.0
+Requires-Dist: python-dotenv>=1.0.1
+Requires-Dist: PyYAML>=6.0.2
+
+# FIRE Agent
+
+FIRE Agent is an independent, benchmark-aligned financial reasoning and
+evidence agent. It keeps one unified single-agent runtime and adapts each
+benchmark through thin runners, output profiles, scoring projections, and
+benchmark-specific evaluators.
+
+All commands below use relative paths and are intended to be run from the
+repository root unless the command first enters `fire_agent/`.
+
+## Project Model
+
+FIRE Agent does not import the outer repository runtime and does not read the
+outer repository `.env`. It only uses `FIRE_AGENT_*` configuration from
+`fire_agent/.env`.
+
+The core flow is:
+
+```text
+official benchmark data
+  -> FIRE input JSONL
+  -> BenchmarkRunner
+  -> BenchTaskContext
+  -> FIREAgent unified runtime
+  -> AgentOutput
+  -> benchmark scoring projection
+  -> local evaluator or official scorer
+```
+
+Current benchmark boundary:
+
+| Bench | Formal FIRE input | Debug-only input | Scoring path |
+| --- | --- | --- | --- |
+| FinGAIA | `benchmarks/fingaia.jsonl` | none | official-style LLM judge, `1/0/-1` |
+| FinSearchComp | `benchmarks/finsearchcomp.jsonl` | `finsearchcomp_text_20.jsonl`, `finsearchcomp_text_remaining_7.jsonl` | bundled standalone LLM judge |
+| FinanceAgentBench | `benchmarks/financeagent_public_full.jsonl`; v2: `benchmarks/financeagent_v2_public_full.jsonl` | `financeagent_public_text_20.jsonl` | local public-rubric evaluator |
+| FinRpt | `benchmarks/finrpt.jsonl` | optional sampled FinRpt split | bundled FinRpt `exec_eval.py` |
+| FinDocResearch | `benchmarks/findocresearch.jsonl` from official `dataset.csv` | no metadata-QA substitute | local readiness plus OpenFinArena scorer when gold is present |
+
+Do not use `findocresearch_text_20.jsonl`; FinDocResearch is a report-generation
+task built from annual-report inputs in the official `dataset.csv`.
+
+## Layout
+
+```text
+fire_agent/
+  README.md
+  pyproject.toml
+  requirements.txt
+  environment.yml
+  .env.example
+  docs/
+    framework_zh.md
+  official_benchmarks/
+    fingaia/
+    finsearchcomp/
+    financeagentbench/
+    finrpt/
+    findocresearch/
+  src/
+    fire_agent/
+      benchmarks/
+        base.py
+        common.py
+        fingaia.py
+        finsearchcomp.py
+        financeagentbench.py
+        finrpt.py
+        findocresearch.py
+        registry.py
+      evaluators/
+        core.py
+        common.py
+        qa.py
+        reports.py
+        document_parse.py
+        base.py
+      aggregation.py
+      cli.py
+      config.py
+      constants.py
+      llm.py
+      prepare_findocresearch.py
+      prepare_finrpt.py
+      profiles.py
+      renderers.py
+      run_benchmarks.py
+      runners.py
+      runtime.py
+      schemas.py
+      tool_families.py
+```
+
+`runners.py` and `evaluators/base.py` are compatibility facades. New code should
+import from `fire_agent.benchmarks` and the split evaluator modules.
+
+## Environment Setup
+
+From the repository root:
+
+```bash
+cd fire_agent
+conda env create -f environment.yml
+conda activate fire-agent
+python -m pip install -r requirements.txt
+python -m pip install -e .
+cp .env.example .env
+```
+
+If the conda environment already exists:
+
+```bash
+cd fire_agent
+conda activate fire-agent
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
+
+Pip-only alternative:
+
+```bash
+cd fire_agent
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install -e .
+cp .env.example .env
+```
+
+Fill `fire_agent/.env`:
+
+```text
+FIRE_AGENT_MODEL=deepseek-v4-flash
+FIRE_AGENT_API_KEY=
+FIRE_AGENT_BASE_URL=https://api.deepseek.com
+
+FIRE_AGENT_SERPER_API_KEY=
+FIRE_AGENT_JINA_API_KEY=
+FIRE_AGENT_ALPHA_VANTAGE_API_KEY=
+FIRE_AGENT_SEC_USER_AGENT=fire-agent contact@example.com
+
+FIRE_AGENT_VISION_MODEL=qwen/qwen3.6-plus
+FIRE_AGENT_VISION_API_KEY=
+FIRE_AGENT_VISION_BASE_URL=https://openrouter.ai/api/v1
+```
+
+For direct module execution without reinstalling after code edits:
+
+```bash
+export PYTHONPATH=src
+```
+
+## Startup Test
+
+Run these from `fire_agent/`:
+
+```bash
+export PYTHONPATH=src
+python -m compileall src/fire_agent
+python -m fire_agent.cli --help
+python -m fire_agent.run_benchmarks --help
+python -m fire_agent.prepare_finrpt --help
+python -m fire_agent.prepare_findocresearch --help
+```
+
+Import smoke test:
+
+```bash
+python - <<'PY'
+from fire_agent.benchmarks import RUNNER_REGISTRY
+from fire_agent.evaluators import get_evaluator
+
+print("benches:", sorted({cls.bench_name for cls in RUNNER_REGISTRY.values()}))
+print("finrpt evaluator:", get_evaluator("finrpt").name)
+PY
+```
+
+One-row runtime smoke test, disabling FIRE agent role model calls. Benchmark
+evaluators may still call their own judge models:
+
+```bash
+mkdir -p ../output/fire_agent_eval
+python -m fire_agent.cli \
+  --bench fingaia \
+  --infile official_benchmarks/fingaia/data/fingaia.jsonl \
+  --outfile ../output/fire_agent_eval/fire_fingaia_heuristic_smoke.jsonl \
+  --sample_num 1 \
+  --heuristic_only \
+  --max_steps 1
+```
+
+One-row model smoke test:
+
+```bash
+python -m fire_agent.cli \
+  --bench fingaia \
+  --infile official_benchmarks/fingaia/data/fingaia.jsonl \
+  --outfile ../output/fire_agent_eval/fire_fingaia_model_smoke.jsonl \
+  --sample_num 1 \
+  --max_steps 2
+```
+
+## QA Tool YAML Configs
+
+The three QA benchmarks can choose their tool set from YAML files under
+`configs/qa/`:
+
+```text
+configs/qa/fingaia.yaml
+configs/qa/finsearchcomp.yaml
+configs/qa/financeagentbench.yaml
+```
+
+`fire_agent.cli` auto-loads `configs/qa/<bench>.yaml` when present. Use
+`--bench_config path/to/config.yaml` for a single explicit config, or `--tools`
+to override the YAML tools from the command line. Batch runs pass the same
+directory with `--bench_configs_dir`.
+
+YAML files now use the canonical FIRE Agent tool layer:
+
+```text
+web_search        # Serper source discovery; snippets and URLs only
+web_reader        # Jina/local non-SEC URL and local file reading
+sec_search        # SEC company/filing metadata discovery
+sec_reader        # Direct SEC filing text, tables, exhibits, and XBRL reading
+market_data       # AkShare structured market data
+multimodal_reader # image/video/audio attachment inspection
+calculator        # local deterministic arithmetic
+```
+
+Benchmark-specific date ceilings, default actions, provider notes, and tool-use
+constraints belong in YAML `tool_settings` and `prompt.tool_constraints`. The
+old compatibility tool names are no longer registered as Agent-visible tools in
+the FIRE runtime.
+
+## Formal Data Import
+
+Run from `fire_agent/`:
+
+```bash
+export PYTHONPATH=src
+mkdir -p ../benchmarks ../output/fire_agent_eval
+```
+
+FinGAIA:
+
+```bash
+cp official_benchmarks/fingaia/data/fingaia.jsonl ../benchmarks/fingaia.jsonl
+cp official_benchmarks/fingaia/data/standard.jsonl ../benchmarks/fingaia_standard.jsonl
+```
+
+FinSearchComp full benchmark:
+
+```bash
+cp official_benchmarks/finsearchcomp/data/finsearchcomp.jsonl ../benchmarks/finsearchcomp.jsonl
+```
+
+FinanceAgentBench full public benchmark:
+
+```bash
+cp official_benchmarks/financeagentbench/data/financeagent_public_full.jsonl ../benchmarks/financeagent_public_full.jsonl
+```
+
+FinanceAgent v2 public benchmark:
+
+```bash
+python official_benchmarks/financeagentbench/official_eval/prepare_financeagent_benchmark.py \
+  --input_csv official_benchmarks/financeagentbench/data/public_v2.csv \
+  --output_file official_benchmarks/financeagentbench/data/financeagent_v2_public_full.jsonl \
+  --source_dataset finance-agent-v2/data/public.csv \
+  --sample_id_prefix financeagent-v2 \
+  --missing_answer '' \
+  --map_rubric_operator finance_agent_v2_operator=correctness
+cp official_benchmarks/financeagentbench/data/financeagent_v2_public_full.jsonl ../benchmarks/financeagent_v2_public_full.jsonl
+```
+
+FinRpt, using the bundled prepared split:
+
+```bash
+cp official_benchmarks/finrpt/data/finrpt.jsonl ../benchmarks/finrpt.jsonl
+```
+
+FinRpt, regenerating from HuggingFace:
+
+```bash
+python -m fire_agent.prepare_finrpt \
+  --benchmarks_dir ../benchmarks \
+  --cache_raw
+```
+
+FinDocResearch, using the official `dataset.csv`:
+
+```bash
+python -m fire_agent.prepare_findocresearch \
+  --dataset_csv official_benchmarks/findocresearch/data/dataset.csv \
+  --benchmarks_dir ../benchmarks
+```
+
+FinDocResearch with local annual-report PDFs:
+
+```bash
+python -m fire_agent.prepare_findocresearch \
+  --dataset_csv official_benchmarks/findocresearch/data/dataset.csv \
+  --reports_dir official_benchmarks/findocresearch/reports \
+  --benchmarks_dir ../benchmarks
+```
+
+Verify imported formal inputs:
+
+```bash
+wc -l \
+  ../benchmarks/fingaia.jsonl \
+  ../benchmarks/finsearchcomp.jsonl \
+  ../benchmarks/financeagent_public_full.jsonl \
+  ../benchmarks/financeagent_v2_public_full.jsonl \
+  ../benchmarks/finrpt.jsonl \
+  ../benchmarks/findocresearch.jsonl
+```
+
+Expected current bundled counts are:
+
+```text
+150  fingaia.jsonl
+635  finsearchcomp.jsonl
+50   financeagent_public_full.jsonl
+27   financeagent_v2_public_full.jsonl
+20   finrpt.jsonl, unless regenerated full
+80   findocresearch.jsonl
+```
+
+## Per-Bench Input Smoke Tests
+
+Run from `fire_agent/`:
+
+```bash
+python -m fire_agent.cli \
+  --bench fingaia \
+  --infile ../benchmarks/fingaia.jsonl \
+  --outfile ../output/fire_agent_eval/fire_fingaia_smoke.jsonl \
+  --sample_num 1
+
+python -m fire_agent.cli \
+  --bench finsearchcomp \
+  --infile ../benchmarks/finsearchcomp.jsonl \
+  --outfile ../output/fire_agent_eval/fire_finsearchcomp_smoke.jsonl \
+  --sample_num 1
+
+python -m fire_agent.cli \
+  --bench financeagentbench \
+  --infile ../benchmarks/financeagent_public_full.jsonl \
+  --outfile ../output/fire_agent_eval/fire_financeagentbench_smoke.jsonl \
+  --sample_num 1
+
+python -m fire_agent.cli \
+  --bench financeagent_v2 \
+  --infile ../benchmarks/financeagent_v2_public_full.jsonl \
+  --outfile ../output/fire_agent_eval/fire_financeagent_v2_smoke.jsonl \
+  --sample_num 1
+
+python -m fire_agent.cli \
+  --bench finrpt \
+  --infile ../benchmarks/finrpt.jsonl \
+  --outfile ../output/fire_agent_eval/fire_finrpt_smoke.jsonl \
+  --sample_num 1
+
+python -m fire_agent.cli \
+  --bench findocresearch \
+  --infile ../benchmarks/findocresearch.jsonl \
+  --outfile ../output/fire_agent_eval/fire_findocresearch_smoke.jsonl \
+  --sample_num 1
+```
+
+## Formal Generation
+
+Run all core benches plus Finance Agent v2:
+
+```bash
+python -m fire_agent.run_benchmarks \
+  --benchmarks_dir ../benchmarks \
+  --output_dir ../output/fire_agent_eval \
+  --only fingaia finsearchcomp financeagentbench financeagent_v2 finrpt findocresearch \
+  --max_steps 8 \
+  --max_tool_calls_per_round 3
+```
+
+Resume after interruption:
+
+```bash
+python -m fire_agent.run_benchmarks \
+  --benchmarks_dir ../benchmarks \
+  --output_dir ../output/fire_agent_eval \
+  --only fingaia finsearchcomp financeagentbench financeagent_v2 finrpt findocresearch \
+  --max_steps 8 \
+  --max_tool_calls_per_round 3 \
+  --resume
+```
+
+Run one bench:
+
+```bash
+python -m fire_agent.run_benchmarks \
+  --benchmarks_dir ../benchmarks \
+  --output_dir ../output/fire_agent_eval \
+  --only finsearchcomp \
+  --max_steps 8 \
+  --max_tool_calls_per_round 3
+```
+
+Output files:
+
+```text
+../output/fire_agent_eval/fire_fingaia_results.jsonl
+../output/fire_agent_eval/fire_finsearchcomp_results.jsonl
+../output/fire_agent_eval/fire_financeagent_public_full_results.jsonl
+../output/fire_agent_eval/fire_finrpt_results.jsonl
+../output/fire_agent_eval/fire_findocresearch_results.jsonl
+../output/fire_agent_eval/fire_findocresearch_results/markdown/*.md
+```
+
+## Local Summaries
+
+These summaries read the local evaluator metrics embedded in each result JSONL.
+
+```bash
+python ../scripts/summarize_fire_results.py \
+  --bench fingaia \
+  --input ../output/fire_agent_eval/fire_fingaia_results.jsonl \
+  --output ../output/fire_agent_eval/fire_fingaia_summary.json
+
+python ../scripts/summarize_fire_results.py \
+  --bench finsearchcomp \
+  --input ../output/fire_agent_eval/fire_finsearchcomp_results.jsonl \
+  --output ../output/fire_agent_eval/fire_finsearchcomp_summary.json
+
+python ../scripts/summarize_fire_results.py \
+  --bench financeagentbench \
+  --input ../output/fire_agent_eval/fire_financeagent_public_full_results.jsonl \
+  --output ../output/fire_agent_eval/fire_financeagentbench_summary.json
+
+python ../scripts/summarize_fire_results.py \
+  --bench finrpt \
+  --input ../output/fire_agent_eval/fire_finrpt_results.jsonl \
+  --output ../output/fire_agent_eval/fire_finrpt_summary.json
+
+python ../scripts/summarize_fire_results.py \
+  --bench findocresearch \
+  --input ../output/fire_agent_eval/fire_findocresearch_results.jsonl \
+  --output ../output/fire_agent_eval/fire_findocresearch_summary.json
+```
+
+FinanceAgentBench has no bundled standalone official scorer. Its local score is
+the public-rubric LLM-as-judge projection computed by
+`FinanceAgentBenchEvaluator`, then summarized by the command above. If no judge
+model is configured, FinanceAgentBench rows are marked `judge_unavailable`
+without a fallback score.
+
+## Official Or Official-Style Scoring
+
+Load the FIRE Agent environment for judge scripts:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+FinGAIA official-style LLM-as-Judge:
+
+```bash
+python official_benchmarks/fingaia/official_eval/evaluate_fingaia_llm_judge.py \
+  --input_file ../output/fire_agent_eval/fire_fingaia_results.jsonl \
+  --output_file ../output/fire_agent_eval/fire_fingaia_judged.jsonl \
+  --judge_policy all \
+  --max_workers 4
+
+python ../scripts/summarize_fire_results.py \
+  --bench fingaia \
+  --input ../output/fire_agent_eval/fire_fingaia_judged.jsonl \
+  --output ../output/fire_agent_eval/fire_fingaia_judged_summary.json
+```
+
+FinSearchComp standalone LLM judge:
+
+```bash
+python official_benchmarks/finsearchcomp/official_eval/evaluate_finsearchcomp.py \
+  --predictions ../output/fire_agent_eval/fire_finsearchcomp_results.jsonl \
+  --reference-data official_benchmarks/finsearchcomp/data/raw/finsearchcomp_data.json \
+  --mode llm \
+  --judge-model "$FIRE_AGENT_MODEL" \
+  --openai-base-url "$FIRE_AGENT_BASE_URL" \
+  --openai-api-key "$FIRE_AGENT_API_KEY" \
+  --output ../output/fire_agent_eval/fire_finsearchcomp_llm_eval.json
+```
+
+FinRpt official scoring runs automatically after FinRpt generation; no batch
+official-eval flag is needed:
+
+```bash
+python -m fire_agent.run_benchmarks \
+  --benchmarks_dir ../benchmarks \
+  --output_dir ../output/fire_agent_eval \
+  --only finrpt \
+  --resume
+```
+
+FinDocResearch OpenFinArena scoring uses the external official evaluator and
+requires official ground truth under:
+
+```text
+official_benchmarks/findocresearch/openfinarena/data/ground_truth/findocresearch_track/markdown/
+official_benchmarks/findocresearch/openfinarena/data/ground_truth/findocresearch_track/converted/
+```
+
+Then run:
+
+```bash
+export OPENAI_API_KEY="$FIRE_AGENT_API_KEY"
+export OPENAI_BASE_URL="$FIRE_AGENT_BASE_URL"
+
+python -m fire_agent.run_benchmarks \
+  --benchmarks_dir ../benchmarks \
+  --output_dir ../output/fire_agent_eval \
+  --only findocresearch \
+  --resume \
+  --run_official_report_eval \
+  --openfinarena_competitions_dir official_benchmarks/findocresearch/openfinarena \
+  --openfinarena_eval_model "$FIRE_AGENT_MODEL"
+```
+
+## Debug Subsets
+
+The following files are retained only for smoke/debug work:
+
+```text
+benchmarks/finsearchcomp_text_20.jsonl
+benchmarks/finsearchcomp_text_remaining_7.jsonl
+benchmarks/financeagent_public_text_20.jsonl
+```
+
+They should not be used for benchmark reporting.
+
+## Development Notes
+
+- `benchmarks/` owns benchmark-specific data loading, prompt materialization,
+  output projection, and result artifact writing.
+- `runtime.py` owns the unified four-role agent flow and does not branch into
+  benchmark-specific agents.
+- `evaluators/` owns local evaluators and artifact readiness checks.
+- `constants.py` keeps shared benchmark constants such as FinRpt official fields
+  and FinDocResearch report structure.
+- `prepare_finrpt.py` and `prepare_findocresearch.py` prepare official report
+  benchmark inputs.
+- `run_benchmarks.py` is the preferred batch entrypoint for the five supported
+  financial benchmarks.

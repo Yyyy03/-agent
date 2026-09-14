@@ -1,0 +1,115 @@
+bench: finsearchcomp
+task_family: multiturn qa
+dataset: benchmarks_clarified/finsearchcomp_t3/finsearchcomp.jsonl
+description: FinSearchComp T3 QA config with canonical FIRE Agent tools and routed market data.
+agent:
+  max_steps: 40
+  max_tool_calls_per_round: 3
+  context_action_ledger_limit: 120
+
+tools:
+  - web_search
+  - web_reader
+  - structured_table_reader
+  - market_data
+  - dataframe_query
+  - multimodal_reader
+  - sec_search
+  - sec_reader
+  - calculator
+
+prompt:
+  system_constraints: |
+    Solve financial QA tasks with clear tool boundaries.
+    Treat every question's explicit date, period, as-of date, publication/vintage date, and named report version as a hard evidence cutoff. Do not use later releases, revisions, or current values to replace the requested historical basis. If the question has no temporal scope, use the latest source available as of the run date.
+    Use market_data for atomic structured lookups: single-entity or small explicit-list prices, China A-share name resolution, statements, indicators, dividends, index/fund/futures/options/macro tables, FRED/ALFRED, World Bank/OECD/IEA/Comtrade/WITS, and official attachment tables.
+    Use web_search for event-date discovery, source discovery, non-structured facts, and finding official URLs. Do not use web_search as the primary evidence path for exact prices, returns, volumes, market caps, or rankings when market_data can retrieve structured rows.
+    Use structured_table_reader only for official or non-standard non-SEC HTML/PDF/CSV/Excel tables that are not already covered by market_data or official_attachment_table and where exact row/column/cell binding matters.
+    Use multimodal_reader.inspect_image_table only for non-SEC image-like tables when exact visible table cells are needed and text/table readers cannot extract them.
+    Use sec_search for SEC filing metadata and sec_reader for SEC filing evidence.
+    If a structured tool returns no rows, determine whether the failure is caused by entity/code mismatch, ambiguous identifier, non-trading date, missing field, unsupported market, provider error, or true source absence. Use the returned diagnostics to choose a resolver/catalog/source_catalog, one narrower structured call, web source discovery, or a source-gap answer; do not repeat an equivalent failed plan.
+    Once enough evidence is found, answer directly. If only partial fields are found, summarize found fields, missing fields, and source gaps.
+  planning_constraints: |
+    Prefer market_data for structured market, macro, official table, and atomic resolver/catalog evidence. Use web_search -> web_reader for event discovery, source discovery, or narrative evidence. Use structured_table_reader for non-SEC public table files not covered by structured tools. Use sec_search -> sec_reader for SEC evidence. Use calculator for arithmetic.
+    Resolve the temporal contract before retrieval and pass the question-specific end date, period, or vintage to tools whenever the action supports it.
+  tool_constraints:
+    market_data:
+      - "Let provider default to auto unless a source is clear. Use Tushare typed actions for precise China structured data: equity_price_history, equity_daily_basic, equity_factor_history, equity_financials, equity_dividend, equity_universe, index_history, index_weight, index_constituents, index_basic, index_catalog, fund_history, fund_nav, fund_portfolio, fund_basic, cn_futures_basic, cn_futures_mapping, cn_futures_daily, cn_futures_warehouse, cn_futures_settle, cn_options_basic, cn_options_daily, option_chain_metrics, cn_bond_yield_curve, cn_macro_series, and shibor_series."
+      - For China A-share company names, first resolve the name with equity_universe, then use equity_financials/equity_dividend/equity_price_history for standard statements, indicators, dividends, and prices.
+      - Use provider="yahoo" for global historical prices, indexes, FX proxies, and continuous futures; provider="fred" for official US macro series; provider="world_bank" for country-level annual macro indicators; provider="akshare" only for China-market tables not covered by typed market_data actions.
+      - macro_series(auto) only auto-resolves clear FRED, World Bank, or Yahoo market series. For AkShare macro, OECD, IEA, ALFRED vintage data, SAFE/NFRA, trade, or local official tables, pass the explicit provider/action.
+      - "Index actions are namespace-routed: standard China indexes use Tushare; Shenwan .SI indexes use the SW index connector; CSI/Zhongzheng indexes use the CSIndex connector."
+      - option_chain_metrics builds exchange option-chain analytic rows from option-chain data and underlying settlement data, with intrinsic value, time value, moneyness, ranking, and coverage diagnostics.
+      - Use market_table only when a named AkShare function is necessary and no typed market_data action covers the requested China-market data.
+      - For quote snapshots use quote_snapshot; for historical global prices use price_history; for China A-share prices use equity_price_history or price_history; for US SEC fundamentals use financial_statement/sec_reader; for China financial tables use equity_financials; for macro data use macro_series or cn_macro_series.
+    web_search:
+      - Search public non-SEC web results only; returns snippets and URLs, not full page content.
+      - Use for event dates, source discovery, and narrative/non-structured facts. Do not repeatedly query variants for a structured price/ranking task after a structured tool has returned actionable diagnostics.
+    web_reader:
+      - Read known non-SEC URLs or local PDF/text files for narrative evidence. SEC URLs must use sec_reader.
+      - If a source is a table-like HTML page, PDF, CSV, or Excel asset and the answer depends on a specific cell, use structured_table_reader instead of relying on a prose summary.
+    structured_table_reader:
+      - Read official or non-standard non-SEC HTML/PDF/CSV/Excel tables when the question asks for an exact table cell, row/column value, regulatory/statistical table, schedule, or downloadable spreadsheet/PDF table not covered by structured tools.
+      - For direct PDF/CSV/XLS/XLSX/ODS table assets, use read_tables directly. For non-SEC HTML or unknown URLs that may expose dynamic tables, date/version controls, forms, downloadable assets, or default-current-period data, use discover_tables to inspect the source before selecting the exact read_tables call.
+      - Treat discover_tables as source/state discovery, not final cell evidence; use its recommended URL, state_params, assets, or controls to make a source-bound read_tables call.
+      - SEC filing tables still use sec_reader_read_tables; standard structured market/macro/trade/futures/metals APIs still use market_data; narrative text still uses web_reader.
+    multimodal_reader:
+      - Use inspect_image_table only for non-SEC image-like tables, screenshots, or direct image URLs when exact row/column/cell evidence is needed and text/table readers cannot extract it.
+    sec_search:
+      - Search SEC EDGAR filing metadata; returns metadata and URLs only.
+    sec_reader:
+      - Read known SEC filing evidence directly from sec.gov/data.sec.gov; never uses Jina and does not search.
+    calculator:
+      - Use calculate for arithmetic.
+
+tool_settings:
+  market_data:
+    canonical_tool: market_data
+    backend: multi_source
+    description: "Atomic structured market and financial data through routed providers: Tushare for China A-share, index, fund, futures, options, macro, and SHIBOR tables; AkShare SW/CSIndex connectors; option_chain_metrics for exchange option-chain analytics; Yahoo Finance for global prices; FRED/ALFRED for US macro/vintages; World Bank for country macro; and AkShare market_table as an explicit escape hatch."
+    default_action: capabilities
+    defaults:
+      provider: auto
+  web_search:
+    canonical_tool: web_search
+    backend: serper
+    description: Search public non-SEC web results through Serper; returns snippets and URLs only.
+    default_action: search
+    defaults:
+      max_results: 5
+  web_reader:
+    canonical_tool: web_reader
+    backend: jina_local
+    description: Read known non-SEC URLs or local documents, cache full source text internally for this task, and return query-focused evidence. Reader observations include document_key; if evidence is incomplete, call web_reader again with that document_key and a narrower query. SEC filing URLs must use sec_reader.
+    default_action: read_url
+  structured_table_reader:
+    canonical_tool: structured_table_reader
+    backend: docling_structured_tables
+    description: Discover and read official or non-standard non-SEC HTML, PDF, CSV, ODS, and Excel table sources. Use discover_tables for dynamic/stateful HTML pages and read_tables for exact table rows, cells, headers, and provenance when the source is not already supported by market_data.
+    default_action: read_tables
+    defaults:
+      limit: 5
+      preview_rows: 50
+      max_pages: 40
+  multimodal_reader:
+    canonical_tool: multimodal_reader
+    backend: openai_compatible_vision
+    description: Inspect non-SEC image-like tables or direct image URLs through the configured multimodal model when text/table readers cannot extract row/column/cell evidence.
+    default_action: inspect_image_table
+    defaults:
+      max_tokens: 3000
+  sec_search:
+    canonical_tool: sec_search
+    backend: sec_api
+    description: Search SEC EDGAR filing metadata; returns metadata and URLs only.
+    default_action: full_text_search
+  sec_reader:
+    canonical_tool: sec_reader
+    backend: direct_sec
+    description: Read known SEC filing text, tables, and exhibits directly from SEC endpoints, cache full filing text internally for this task, and return query-focused evidence.
+    default_action: read_filing
+  calculator:
+    canonical_tool: calculator
+    backend: local
+    description: Evaluate a safe arithmetic expression.
+    default_action: calculate

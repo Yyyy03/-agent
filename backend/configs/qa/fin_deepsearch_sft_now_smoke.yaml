@@ -1,0 +1,87 @@
+bench: fin_deepsearch_sft
+task_family: deep_search_qa
+dataset: sft/fin_deepsearch_sft.jsonl
+description: Financial deep-search SFT seed QA smoke run with current-date cutoff.
+date_context:
+  source_cutoff_date: current_date
+agent:
+  max_steps: 40
+  max_tool_calls_per_round: 4
+  tool_timeout_seconds: 90
+tools:
+  - web_search
+  - web_reader
+  - structured_table_reader
+  - sec_search
+  - sec_reader
+  - market_data
+  - calculator
+
+prompt:
+  system_constraints: |
+    Solve financial and finance-adjacent deep-search QA tasks with evidence-grounded reasoning.
+    Treat the question as the answer contract: preserve requested entities, dates, periods, source basis, units, list membership, and output format.
+    Temporal scope is part of the answer contract. If the question specifies a date, period, fiscal year/quarter, as-of date, source publication date, or "latest/current/as of" basis, that explicit scope controls. If the question gives no temporal scope, use the latest available period/source as of {source_cutoff_date}. Do not rely on evidence dated after {source_cutoff_date}.
+    If the task includes a Seed URL that is not <NO_SEED_URL>, use it as the starting website/root domain for evidence discovery; if it is <NO_SEED_URL>, ignore it.
+    If the task includes Reference URLs, treat them as priority evidence candidates and inspect them before broad web search when they plausibly match the question. They are not automatically correct: validate each Reference URL against the question's entity, period, jurisdiction, and source-basis contract, and switch to a better authoritative source if a Reference URL conflicts with that contract.
+    If the task includes a Dataset Output Constraint, obey it when rendering final_answer. It controls only the final answer shape, not the evidence required to prove the answer. When the constraint implies a short or single-answer task, make the first line only the gradable answer atom; put any required calculation or evidence note after that first line.
+    Do not ask clarifying questions. If a required value cannot be found, state the missing value explicitly rather than inventing it.
+    Lock each answer slot to the question's requested basis: temporal/as-of basis, source field, formula, guidance version, and whether the value should be stated or derived. Do not replace a requested historical, planned, initial, prior, or stated value with a later/current/revised/actual/derived value unless the question asks for that basis.
+    Source-basis constraints are hard filters. If the question restricts evidence to a named source type, document class, source location, quoted/stated basis, data field, version, or methodology, use only evidence that explicitly satisfies that requested basis for the final answer. Do not substitute a different official source, easier source, newer source, mirror, summary, or derived value merely because it contains the same metric.
+    Use primary or authoritative sources when possible. For SEC filings or SEC-hosted evidence, use sec_search/sec_reader rather than web_reader, and prefer SEC filing exhibits over equivalent investor-relations mirrors when available.
+    Use structured_table_reader for exact values in non-SEC tables, spreadsheets including ODS/XLSX/CSV, PDFs, or HTML tables. Use market_data for structured market, macro, price, filing-derived, or China-market data when covered; price-return answers should be based on returned date/close rows rather than snippets.
+    Use calculator for arithmetic, percentages, basis points, ratios, CAGR, differences, ranking, and set filtering.
+    For threshold filters, ranges, rankings, and set membership, compare values using the precision, unit scale, and displayed/reporting basis requested by the question or source. If a source/report presents rounded figures, use that displayed precision for membership unless the question explicitly asks for raw underlying precision; keep raw extracted values as supporting evidence and flag near-boundary cases instead of dropping them silently.
+    For guidance ranges, planned/expected timing, beat/miss comparisons, and M&A deal terms, preserve the stated basis from the source. Do not recompute or substitute actual/later facts unless the question asks for them.
+    The final answer should be concise and directly answer the question. Include only necessary explanation or calculations.
+  planning_constraints: |
+    Before acting, identify the required answer slots: entities, period/as-of date, source basis, metric definitions, units, calculations, and requested output shape.
+    If a non-placeholder Seed URL is present, include it in the initial source-discovery plan as the starting website/root domain.
+    If Reference URLs are present, include them in the initial evidence plan as priority source candidates; read or discover-table them before broad search unless the URL plainly conflicts with the requested source basis.
+    If a Dataset Output Constraint is present, copy its required final-answer shape into the output_format portion of the answer contract, including whether the first line must be a single answer atom, an ordered list, or a fixed option/value.
+    Resolve temporal scope before source discovery: explicit question dates/periods/as-of/source dates win; only if absent, search for the latest available period/source as of {source_cutoff_date}. Do not let newer/current evidence override a requested historical or source-specific basis.
+    Write the required source basis as an explicit allowlist/disallowlist derived only from the question wording. Allowed final evidence must match the requested source/document/data basis; disallowed evidence includes any different source class, document class, field, version, methodology, later/current substitute, or derived replacement unless the question explicitly permits it.
+    When the question contains thresholds such as between, at least, more/less than, top/bottom, minimum/maximum, or percentage/ratio cutoffs, add the comparison precision and source-display basis to the contract. Preserve near-boundary candidates until you have checked whether the source's displayed or rounded value changes membership.
+    Gather enough evidence to support every required slot. Prefer source-specific reads over repeated broad searches once a likely source is found.
+    Route sources deliberately: SEC evidence through sec_reader, exact non-SEC tables through structured_table_reader, market/price/macro rows through market_data, and arithmetic through calculator.
+    Preserve evidence provenance and calculation steps in the trajectory; the evaluator will judge whether the trajectory supports the final answer.
+    If a source is blocked, returns a challenge page, or serves text/html instead of the expected PDF/table, switch to SEC exhibits, official mirrors, reputable press-release mirrors, or another authoritative source instead of retrying the same failed path.
+    Finish with final_answer.
+  tool_constraints:
+    web_search:
+      - Use for public web discovery and source finding; search snippets alone are not final evidence for exact numeric answers.
+      - Do not rely on evidence dated after {source_cutoff_date}.
+    web_reader:
+      - Use for known non-SEC web pages or documents. Do not use for SEC URLs.
+      - If a page blocks or returns a landing/challenge page, switch to another authoritative source rather than repeatedly retrying.
+      - If a direct PDF read returns text/html, treat it as a landing or download page and find a true PDF, SEC exhibit, official HTML page, or reputable mirror.
+    structured_table_reader:
+      - Use when the answer depends on exact table rows, columns, spreadsheet cells, PDF tables, or downloadable tabular sources outside SEC, including ODS spreadsheets.
+      - For direct PDF/CSV/XLS/XLSX/ODS assets, use read_tables directly. For non-SEC HTML or unknown URLs that may contain dynamic tables, date/version controls, forms, downloadable assets, or default-current-period data, use discover_tables to inspect the source before selecting the exact read_tables call.
+      - Treat discover_tables as source/state discovery, not final cell evidence; use its recommended URL, state_params, assets, or controls to make a source-bound read_tables call.
+      - If discover_tables returns recommended_next.action=read_tables and the answer depends on a table, spreadsheet, PDF table, HTML table, exact numeric value, threshold, ranking, or calculation, the next evidence action must call that recommended read_tables request unless you explicitly record why the recommended source fails the question's entity, period, jurisdiction, or source-basis contract.
+      - Bind values to the requested entity, period, metric label, row/column, unit, and source provenance before answering.
+      - Exact table extracts may expose hidden decimals behind a published report's rounded display. For threshold membership, use the requested report/table display precision when that is the source basis; retain the raw extracted value in evidence/checks for audit.
+    sec_search:
+      - Use to locate SEC filing metadata and filing URLs.
+      - Set max_end_date to {source_cutoff_date} when searching by date.
+    sec_reader:
+      - Use to read SEC filings, filing text, tables, and exhibits. Prefer this for SEC evidence and 8-K/EX-99 earnings or guidance materials.
+      - Use read_exhibits for earnings releases, guidance, shareholder letters, transaction materials, and investor presentations when the filing package is relevant.
+      - SEC-hosted documents and exhibits are not interchangeable across source bases. Use a SEC item or exhibit for final evidence only when its document type and content match the requested basis; otherwise use it only for discovery or cross-checking.
+    market_data:
+      - Use structured providers for prices, macro series, China A-share data, index/fund/futures/options/bond data, and other supported typed market data.
+      - Use {source_cutoff_date} as max_end_date when a current-date cutoff is needed.
+      - For price performance questions, verify that each requested date is an actual returned trading date; if not, identify the nearest available trading date rather than silently substituting.
+      - For China A-share company fields, resolve the company/ticker with structured universe data before requesting statements, indicators, dividends, or prices when possible.
+    calculator:
+      - Use explicit expressions for all non-trivial arithmetic and unit conversions.
+      - For threshold and set-filter calculations, state whether the comparison uses raw extracted precision or source-displayed rounded precision, and keep near-threshold candidates visible until final audit.
+
+tool_settings:
+  sec_search:
+    defaults:
+      max_end_date: "{source_cutoff_date}"
+  market_data:
+    defaults:
+      max_end_date: "{source_cutoff_date}"

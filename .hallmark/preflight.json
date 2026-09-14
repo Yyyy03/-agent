@@ -1,0 +1,14 @@
+{
+  "date": "2026-07-29",
+  "framework": "Next.js 16 with React 19 and Vinext",
+  "font_stack": "Epilogue with Caslon/Baskerville display fallbacks",
+  "palette": "Legacy earth-tone hex properties in app/globals.css",
+  "motion": "Native View Transition and CSS; no motion library",
+  "spacing": "Legacy ad hoc spacing, normalized by a new 4pt token scale",
+  "preserve": [
+    "Application routes",
+    "Agent execution flow",
+    "Evidence navigation",
+    "Existing uncommitted evaluation test state"
+  ]
+}

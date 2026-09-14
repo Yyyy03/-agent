@@ -1,0 +1,87 @@
+bench: fingaia
+task_family: multiturn qa
+dataset: benchmarks_clarified/fingaia.jsonl
+description: FinGAIA financial QA tasks using canonical FIRE Agent tools.
+agent:
+  max_steps: 40
+  max_tool_calls_per_round: 3
+tools:
+  - web_search
+  - web_reader
+  - sec_search
+  - sec_reader
+  - market_data
+  - multimodal_reader
+  - calculator
+
+prompt:
+  system_constraints: |
+    Solve FinGAIA financial QA tasks with reliable web, document, filing, market-data, and multimodal evidence.
+    Preserve the language and answer format requested by the question.
+    Do not assume the FinanceAgentBench fixed date unless the question itself asks for that date.
+    Treat any date, period, as-of date, publication/vintage date, or report version stated in the question as a hard evidence cutoff; do not replace it with a later revision or current value. If the question gives no temporal scope, use the latest source available as of the run date.
+    Use web_search only for public non-SEC source discovery, web_reader for known non-SEC URLs or local documents, sec_search for SEC filing metadata, and sec_reader for SEC filing evidence.
+    Use market_data for structured market data: Tushare for precise China A-share, index, fund, futures, options, ChinaBond yield curve, China macro, and SHIBOR tables; Yahoo Finance for global historical prices; FRED for US macro series; World Bank for country-level macro series; and AkShare only for China-market tables not covered by typed market_data actions. Use multimodal_reader for image, video, or audio attachments.
+    Once enough evidence is found, answer directly. If only partial fields are found, state found fields, missing fields, and source gaps.
+  planning_constraints: |
+    Choose tools by evidence need: web_search for discovery, web_reader for non-SEC reading, sec_search for SEC filing metadata, sec_reader for SEC evidence, market_data for routed structured market data, multimodal_reader for attachments, and calculator for arithmetic.
+    Resolve the question-specific temporal contract before retrieval and pass its end date, period, or vintage to tools whenever supported.
+  tool_constraints:
+    web_search:
+      - Search public non-SEC web results only; returns snippets and URLs.
+    web_reader:
+      - Read known non-SEC URLs or local PDF/text files. SEC filing URLs must use sec_reader.
+    sec_search:
+      - Search SEC EDGAR filing metadata; returns metadata and URLs only.
+    sec_reader:
+      - Read known SEC filing evidence directly from sec.gov/data.sec.gov; never uses Jina and does not search.
+    market_data:
+      - "Let provider default to auto unless a source is clear. Use Tushare typed actions for precise China structured data: equity_price_history, equity_daily_basic, equity_factor_history, equity_financials, equity_dividend, equity_universe, index_history, index_weight, index_basic, fund_history, fund_nav, fund_portfolio, fund_basic, cn_futures_basic, cn_futures_mapping, cn_futures_daily, cn_futures_warehouse, cn_futures_settle, cn_options_basic, cn_options_daily, cn_bond_yield_curve, cn_macro_series, and shibor_series."
+      - Use provider="yahoo" for global historical prices, indexes, FX proxies, and continuous futures; provider="fred" for official US macro series; provider="world_bank" for country-level annual macro indicators; provider="akshare" only for China-market tables not covered by typed market_data actions.
+      - Do not use Yahoo continuous futures as an exact substitute for a specific dated futures contract unless the question permits approximation.
+      - For China futures warehouse receipts, pass the product code in symbol, such as M or CU, not the Chinese product name.
+    multimodal_reader:
+      - Use for image, video, or audio attachments when the answer depends on visual or audio content.
+    calculator:
+      - Use calculate for arithmetic.
+
+tool_settings:
+  web_search:
+    canonical_tool: web_search
+    backend: serper
+    description: Search public non-SEC web results through Serper; returns snippets and URLs only.
+    default_action: search
+    defaults:
+      max_results: 5
+  web_reader:
+    canonical_tool: web_reader
+    backend: jina_local
+    description: Read known non-SEC URLs or local documents, cache full source text internally for this task, and return query-focused evidence. Reader observations include document_key; if evidence is incomplete, call web_reader again with that document_key and a narrower query. SEC filing URLs must use sec_reader.
+    default_action: read_url
+  sec_search:
+    canonical_tool: sec_search
+    backend: sec_api
+    description: Search SEC EDGAR filing metadata; returns metadata and URLs only.
+    default_action: full_text_search
+  sec_reader:
+    canonical_tool: sec_reader
+    backend: direct_sec
+    description: Read known SEC filing text, tables, and exhibits directly from SEC endpoints, cache full filing text internally for this task, and return query-focused evidence. Reader observations include document_key; if evidence is incomplete, call sec_reader_read_filing again with that document_key and a narrower query.
+    default_action: read_filing
+  market_data:
+    canonical_tool: market_data
+    backend: multi_source
+    description: "Structured market and financial data through routed providers: Tushare for precise China A-share name resolution, statements, indicators, dividends, prices, index, fund, futures, options, ChinaBond yield curve, China macro, and SHIBOR tables; Yahoo Finance for global prices; FRED for US macro; World Bank for country macro; and AkShare only as an explicit escape hatch for China-market tables not covered by typed actions."
+    default_action: capabilities
+    defaults:
+      provider: auto
+  multimodal_reader:
+    canonical_tool: multimodal_reader
+    backend: openai_compatible_vision
+    description: Inspect image, video, and audio attachments through the configured multimodal model.
+    default_action: inspect
+  calculator:
+    canonical_tool: calculator
+    backend: local
+    description: Evaluate a safe arithmetic expression.
+    default_action: calculate

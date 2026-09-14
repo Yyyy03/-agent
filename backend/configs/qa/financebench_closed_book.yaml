@@ -1,0 +1,34 @@
+bench: financebench_closed_book
+task_family: single_turn_qa
+dataset: benchmarks/financebench.jsonl
+description: FinanceBench closed-book QA with only the user question.
+agent:
+  max_steps: 1
+  max_tool_calls_per_round: 3
+tools: []
+
+model:
+  profiles:
+    v4flash:
+      name: deepseek-v4-flash
+      max_tokens: 2048
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+    pro:
+      name: deepseek-v4-pro
+      max_tokens: 2048
+      temperature: 0
+      base_url_env: FIRE_AGENT_BASE_URL
+      api_key_env: FIRE_AGENT_API_KEY
+  default_profile: v4flash
+  reasoning:
+    enabled: true
+    mode: high
+
+prompt:
+  system_constraints: |
+    Answer the FinanceBench user question without any financial reports, PDFs, evidence pages, retrieval results, or external tools.
+    Use only the user question.
+    Provide a concise final answer.
+    Preserve the company, fiscal period, unit, scale, sign, and rounding requested by the question when they are inferable.
